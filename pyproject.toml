@@ -1,0 +1,8 @@
+[project]
+name = "my_custom_ops"
+version = "0.1.0"
+dependencies = ["torch>=2.7.0", "numpy"]
+
+[build-system]
+requires = ["setuptools", "wheel", "torch"]
+build-backend = "setuptools.build_meta"

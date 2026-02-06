@@ -34,7 +34,7 @@ def verify_spatial_logic(args):
         output_tensor = torch.zeros(*args.outshape, device=device, dtype=dtype)
         shape = output_tensor.shape
         output_tensor += op.forward(
-            inp, shape
+            inp, shape, args.operation
         )
         return output_tensor
 
@@ -61,7 +61,7 @@ def chunked_verify_spatial_logic(args):
     def func(inp):
         output_tensor = torch.zeros(*args.outshape, device=device, dtype=dtype)
         for i in range(0, inp.shape[0], chunk):
-            output_tensor[i:i+chunk] += op.forward(inp[i:i+chunk], output_tensor[i:i+chunk].shape)
+            output_tensor[i:i+chunk] += op.forward(inp[i:i+chunk], output_tensor[i:i+chunk].shape, args.operation)
 
         return output_tensor
 
@@ -93,7 +93,7 @@ def verify_6planes_chunked(args):
         output_tensor = torch.zeros(*args.outshape, device=device, dtype=dtype)
         for i in range(0, output_tensor.shape[0], chunk):
             for j in range(len(inputs)):
-                output_tensor[i:i+chunk] += ops[j].forward(inputs[j][i:i+chunk], output_tensor[i:i+chunk].shape)
+                output_tensor[i:i+chunk] += ops[j].forward(inputs[j][i:i+chunk], output_tensor[i:i+chunk].shape, args.operation)
 
         return output_tensor
 
@@ -112,7 +112,7 @@ def profile(args):
     torch.cuda.synchronize()
     print('Calling model forward')
     with profiler.profile(with_stack=True, profile_memory=True) as prof:
-        output_tensor += op.forward(input_tensor, output_tensor.shape)
+        output_tensor += op.forward(input_tensor, output_tensor.shape, args.operation)
         torch.cuda.synchronize()
     print(prof.key_averages(group_by_stack_n=5).table(sort_by='self_cpu_time_total', row_limit=5))
     print('Done')
@@ -131,14 +131,14 @@ def profile(args):
     print('Calling model without grad')
     with torch.no_grad():
         with profiler.profile(with_stack=True, profile_memory=True) as prof:
-            y = op.forward(input_tensor, target_shape)
+            y = op.forward(input_tensor, target_shape, args.operation)
     print(prof.key_averages(group_by_stack_n=5).table(sort_by='self_cpu_time_total', row_limit=5))
     print('Done')
 
     print(f'Running forward + backward {args.n} times')
     with profiler.profile(with_stack=True, profile_memory=True) as prof:
         for i in range(args.n):
-            y = op.forward(input_tensor, target_shape)
+            y = op.forward(input_tensor, target_shape, args.operation)
             l = y.sum()
             l.backward()
     torch.cuda.synchronize()
@@ -149,7 +149,7 @@ def call_chunked(output_tensor, inputs, ops, chunk):
     # output_tensor = torch.zeros(*args.outshape, device=device, dtype=dtype)
     for i in range(0, output_tensor.shape[0], chunk):
         for j in range(len(inputs)):
-            output_tensor[i:i+chunk] += ops[j].forward(inputs[j][i:i+chunk], output_tensor[i:i+chunk].shape)
+            output_tensor[i:i+chunk] += ops[j].forward(inputs[j][i:i+chunk], output_tensor[i:i+chunk].shape, args.operation)
     return output_tensor
 
 def profile_6planes_chunked(args):
@@ -198,6 +198,7 @@ def profile_6planes_chunked(args):
 if __name__ == '__main__':
     parser = ap()
     parser.add_argument('--library', type=str, help='Location of library on disk', required=True)
+    parser.add_argument('--operation', type=str, default='sum', choices=['sum', 'amax', 'amin'])
     subparser = parser.add_subparsers(dest='command')
     verify_parser = subparser.add_parser('verify')
     verify_parser.add_argument('--inshape', type=int, nargs='+', default=[1,2], help='shape of input')

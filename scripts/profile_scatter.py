@@ -7,6 +7,7 @@ if __name__ == '__main__':
 
     parser = ap(formatter_class=RTHF)
     parser.add_argument('--library', type=str, required=True)
+    parser.add_argument('--operation', type=str, default='sum')
     parser.add_argument(
         '--indices',
         help='''
@@ -60,7 +61,7 @@ file:tensor:loc --
             with_stack=True, profile_memory=True) as prof:
 
             for i in range(10):
-                frame += op.forward(cells, frame.shape)
+                frame += op.forward(cells, frame.shape, args.operation)
                 prof.step()
     print(prof.key_averages(group_by_stack_n=5).table(sort_by='self_cpu_time_total', row_limit=5))
     print(frame)

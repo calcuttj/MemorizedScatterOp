@@ -1,7 +1,7 @@
 from setuptools import setup
 from torch.utils.cpp_extension import BuildExtension, CppExtension, CUDAExtension
 import torch
-import os 
+import os
 
 ext_type = CUDAExtension if torch.cuda.is_available() else CppExtension
 
@@ -13,7 +13,9 @@ setup(
             name='my_custom_ops_lib',
             sources=['MyScatterNode.cpp'],
             extra_compile_args={'cxx': ['-O3']},
-            extra_link_args=[f"-Wl,-rpath,{lib_dir}"],
+            extra_link_args=[
+                f"-Wl,-rpath,{lib_dir} "
+            ],
             
         )
     ],

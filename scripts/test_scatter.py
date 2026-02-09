@@ -24,7 +24,7 @@ def verify_spatial_logic(args):
     
     last_dim_size = input_tensor.shape[-1]
     print(last_dim_size)
-    ind = torch.randint(output_tensor.shape[-1], (input_tensor.shape[-1],)).to(device)
+    ind = torch.randint(args.outshape[-1], (input_tensor.shape[-1],)).to(device)
     
     op = torch.classes.my_ops.MyScatterOp(ind)
     
@@ -198,7 +198,7 @@ def profile_6planes_chunked(args):
 if __name__ == '__main__':
     parser = ap()
     parser.add_argument('--library', type=str, help='Location of library on disk', required=True)
-    parser.add_argument('--operation', type=str, default='sum', choices=['sum', 'amax', 'amin'])
+    parser.add_argument('--operation', type=str, default='sum', choices=['sum', 'max', 'min'])
     subparser = parser.add_subparsers(dest='command')
     verify_parser = subparser.add_parser('verify')
     verify_parser.add_argument('--inshape', type=int, nargs='+', default=[1,2], help='shape of input')

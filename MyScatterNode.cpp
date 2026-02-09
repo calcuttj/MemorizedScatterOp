@@ -1,4 +1,5 @@
 #include <torch/extension.h>
+#include "torchscatter/scatter.h"
 // #include <ATen/at_indexing.h>
 // #include <torch/c10/excep
 #include <vector>
@@ -9,14 +10,15 @@ using namespace torch::indexing;
 struct MyScatterNode : public Node {
     at::Tensor persistent_index;
     torch::Tensor src, result;
-    std::vector<TensorIndex> where_src_is_result;
+    // std::vector<TensorIndex> where_src_is_result;
+    torch::Tensor minmax_indices;
     std::vector<int64_t> input_shape;
     std::string operation;
 
     std::vector<std::string> implemented = {
-        "sum" //,
-        // "amax",
-        // "amin"
+        "sum",
+        "max",
+        "min"
     };
 
     variable_list apply(variable_list&& grads) override {
@@ -47,14 +49,13 @@ struct MyScatterNode : public Node {
         if (operation == "sum") {
             grad_src = grad_output.gather(-1, expanded_index);
         }
-        else if (operation == "amax" || operation == "amin") {
-            torch::Tensor value = result.gather(-1/*dim*/, expanded_index);
-            torch::Tensor test_src_is_result = torch::zeros_like(value);
-            test_src_is_result.index_put_(where_src_is_result, 1.);
-            
-            torch::Tensor N_to_distribute = at::zeros_like(result).scatter_add(-1/*dim*/, expanded_index, test_src_is_result);
-            torch::Tensor grad_distributed = grad_output / N_to_distribute;
-            grad_src = test_src_is_result * grad_distributed.gather(-1/*dim*/, expanded_index);
+        else if (operation == "max" || operation == "min") {
+            int dim = input_shape.size() - 1;
+            auto src_shape = input_shape; //Copy this to change it
+            src_shape[dim] += 1;
+            grad_src = torch::zeros(src_shape, grad_output.options());
+            grad_src.scatter_(dim, minmax_indices, grad_output);
+            grad_src = grad_src.narrow(dim, 0, src_shape[dim] - 1);
         }
         return {grad_src};
     }
@@ -84,7 +85,9 @@ public:
         }
         expanded_index = expanded_index.expand_as(src);
         auto result = at::zeros(results_shape, src.options());
+        // torch::Tensor result;
         if (operation == "sum") {
+            // result = at::zeros(results_shape, src.options());
             {
                 at::NoGradGuard no_grad;
                 result.scatter_reduce_(-1, expanded_index, src, "sum", false);
@@ -98,35 +101,35 @@ public:
                 create_gradient_edge(result, grad_fn);
             }
         }
+        else if (operation == "max" || operation == "min") {
+            torch::Tensor indices;
+            {
+                at::NoGradGuard no_grad;
+                std::tie(result, indices) = (
+                    (operation == "max") ?
+                    scatter_max(src, expanded_index.to(torch::kLong), -1,
+                                result, std::nullopt) :
+                    scatter_min(src, expanded_index.to(torch::kLong), -1,
+                                result, std::nullopt)
+                );
+            }
+            if (GradMode::is_enabled() && src.requires_grad()) {
+                auto grad_fn = std::make_shared<MyScatterNode>();
+                grad_fn->persistent_index = index_1d;
+                grad_fn->input_shape = src.sizes().vec();
+                grad_fn->operation = operation;
+                grad_fn->minmax_indices = indices;
+                grad_fn->set_next_edges(collect_next_edges(src));
+                create_gradient_edge(result, grad_fn);
+            }
+        }
         else {
             TORCH_CHECK(
             false,
-            "Only sum is implemented. User requested ",
+            "Only sum, max, & min are implemented. User requested ",
             operation
         );
         }
-        // else  if (operation == "amax" || operation == "amin") {
-
-            // Using torch_scatter might be easier for this. Figure out how to build against torch_scatter...
-        //     if (GradMode::is_enabled() && src.requires_grad()) {
-        //         auto grad_fn = std::make_shared<MyScatterNode>();
-        //         grad_fn->persistent_index = index_1d;
-        //         grad_fn->input_shape = src.sizes().vec();
-        //         grad_fn->operation = operation;
-               
-        //         grad_fn->result = result;
-        //         auto value = result.gather(-1/*dim*/, expanded_index);
-        //         torch::Tensor src_is_result = (src == value);
-        //         auto where_src_is_result = src_is_result.nonzero();
-        //         std::vector<TensorIndex> as_array;
-        //         for (const auto & c : where_src_is_result.t().unbind(0))
-        //             as_array.push_back(c);
-
-        //         grad_fn->where_src_is_result = as_array;
-        //         grad_fn->set_next_edges(collect_next_edges(src));
-        //         create_gradient_edge(result, grad_fn);
-        //     }
-        // }
 
         return result;
     }
